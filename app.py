@@ -19,8 +19,8 @@ client = init_connection()
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1iUkxg-f0KN_VAGdSl-hIMcPz_-U3jzjfWpFdc66sG6o/edit?gid=0#gid=0"
 sheet = client.open_by_url(URL_PLANILHA).worksheet("Base")
 
-# 3. Função de Estilo Visual (Tela colorida e Letras Gigantes)
-def mostrar_alerta(mensagem, cor_fundo, cor_texto):
+# 3. Função de Estilo Visual (Responsiva - Ajusta ao celular e PC)
+def mostrar_alerta(icone, titulo, subtitulo, cor_fundo, cor_texto):
     st.markdown(f"""
         <style>
         /* Pinta o fundo da tela inteira */
@@ -29,12 +29,38 @@ def mostrar_alerta(mensagem, cor_fundo, cor_texto):
         }}
         /* Esconde barra superior para ficar mais limpo */
         header {{visibility: hidden;}}
+        
+        /* Formatação das letras usando CLAMP (cresce e diminui sozinho) */
+        .alerta-box {{
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+            text-align: center;
+            margin-top: 10px;
+        }}
+        .alerta-titulo {{
+            /* Tamanho fluido: min 40px, ideal 12vw, max 100px */
+            font-size: clamp(40px, 12vw, 100px); 
+            color: {cor_texto}; 
+            font-weight: 900; 
+            line-height: 1.1;
+            margin-bottom: 20px;
+        }}
+        .alerta-subtitulo {{
+            /* Tamanho fluido para a caixinha do número */
+            font-size: clamp(25px, 6vw, 45px);
+            color: {cor_texto};
+            font-weight: bold;
+            background-color: rgba(0, 0, 0, 0.15); /* Fundo sutil */
+            padding: 10px 25px;
+            border-radius: 15px;
+        }}
         </style>
         
-        <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 60vh;">
-            <h1 style="font-size: 100px; color: {cor_texto}; text-align: center; font-weight: 900; line-height: 1.2;">
-                {mensagem}
-            </h1>
+        <div class="alerta-box">
+            <div class="alerta-titulo">{icone}<br>{titulo}</div>
+            <div class="alerta-subtitulo">{subtitulo}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -54,28 +80,27 @@ def validar_ingresso(codigo):
             
     if linha_encontrada == -1:
         # Fundo Vermelho
-        mostrar_alerta(f"❌ NÃO IDENTIFICADO<br><span style='font-size: 50px; color: white;'>Código: {codigo}</span>", "#b71c1c", "white")
+        mostrar_alerta("❌", "NÃO IDENTIFICADO", f"Código: {codigo}", "#b71c1c", "white")
     else:
         if status_atual == "OK":
             # Fundo Amarelo
-            mostrar_alerta(f"⚠️ DUPLICADO<br><span style='font-size: 50px; color: black;'>Código: {codigo}</span>", "#ffeb3b", "black")
+            mostrar_alerta("⚠️", "DUPLICADO", f"Código: {codigo}", "#ffeb3b", "black")
         else:
             # Fundo Verde
             sheet.update_cell(linha_encontrada, 2, "OK")
-            mostrar_alerta(f"✅ LIBERADO<br><span style='font-size: 50px; color: white;'>Código: {codigo}</span>", "#1b5e20", "white")
+            mostrar_alerta("✅", "LIBERADO", f"Código: {codigo}", "#1b5e20", "white")
 
-# 5. Interface Otimizada para o Leitor Físico (Scanner)
+# 5. Interface Otimizada para o Leitor Físico e Celular
 st.title("🎫 Validação de Ingressos")
 
 # Cria variáveis na memória para não perder o fluxo quando a tela atualizar
 if "ultimo_codigo" not in st.session_state:
     st.session_state.ultimo_codigo = ""
 
-# Esta função roda instantaneamente assim que o Scanner aperta o "Enter" sozinho
+# Esta função roda instantaneamente assim que o enter é disparado
 def processar_leitura():
-    # Salva o número que o scanner leu
     st.session_state.ultimo_codigo = st.session_state.campo_leitor
-    # Apaga o campo instantaneamente para deixar o cursor pronto para o próximo ingresso
+    # Apaga o campo instantaneamente
     st.session_state.campo_leitor = ""
 
 # O campo de texto agora reage automaticamente ao Enter (on_change)
