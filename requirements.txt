@@ -2,4 +2,3 @@ Plaintext
 streamlit
 gspread
 oauth2client
-streamlit-zxing
