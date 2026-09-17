@@ -1,5 +1,6 @@
 import time
 import random
+import threading
 import streamlit as st
 import gspread
 from gspread.exceptions import APIError
@@ -66,11 +67,19 @@ def carregar_base():
         base[codigo] = {"linha": i + 1, "status": status}
     return base
  
-# Guardamos também, em memória de processo (não só no cache_data), os códigos
-# já marcados nesta sessão do app inteiro, para que uma bipagem duplicada
-# rápida (antes do próximo refresh do cache) nunca precise ir à planilha.
-if "usados_localmente" not in st.session_state:
-    st.session_state.usados_localmente = set()
+# ---------------------------------------------------------------------------
+# ESTADO COMPARTILHADO ENTRE TODOS OS PCs/DISPOSITIVOS (não por sessão!)
+# ---------------------------------------------------------------------------
+# st.session_state é isolado por navegador/aba — dois PCs bipando o mesmo
+# código ao mesmo tempo não se "veem". Por isso usamos st.cache_resource,
+# que cria UM único objeto compartilhado por todos os usuários conectados
+# a este app, mais um Lock para tornar "verificar + marcar" uma operação
+# atômica (um PC espera o outro terminar antes de checar).
+@st.cache_resource
+def get_estado_compartilhado():
+    return {"usados": set(), "lock": threading.Lock()}
+ 
+estado = get_estado_compartilhado()
  
 # ---------------------------------------------------------------------------
 # 5. Função de Estilo Visual (Responsiva - Ajusta ao celular e PC)
@@ -125,21 +134,32 @@ def validar_ingresso(codigo):
         mostrar_alerta("❌", "NÃO IDENTIFICADO", f"Código: {codigo}", "#b71c1c", "white")
         return
  
-    ja_usado = info["status"] == "OK" or codigo in st.session_state.usados_localmente
+    # Trava: enquanto um PC estiver checando/marcando este lote de códigos,
+    # nenhum outro PC consegue checar ao mesmo tempo — elimina a corrida de
+    # dois leitores bipando o mesmo código no mesmíssimo instante.
+    with estado["lock"]:
+        ja_usado = info["status"] == "OK" or codigo in estado["usados"]
  
-    if ja_usado:
-        mostrar_alerta("⚠️", "DUPLICADO", f"Código: {codigo}", "#ffeb3b", "black")
-    else:
-        try:
-            chamar_com_retry(sheet.update_cell, info["linha"], 2, "OK")
-            st.session_state.usados_localmente.add(codigo)
-            mostrar_alerta("✅", "LIBERADO", f"Código: {codigo}", "#1b5e20", "white")
-        except APIError:
-            # Mesmo com retry, se ainda falhar, avisa sem quebrar o app
-            mostrar_alerta(
-                "⏳", "TENTE NOVAMENTE",
-                f"Código: {codigo} (sistema ocupado)", "#ff9800", "black"
-            )
+        if ja_usado:
+            mostrar_alerta("⚠️", "DUPLICADO", f"Código: {codigo}", "#ffeb3b", "black")
+            return
+ 
+        # Marca como usado IMEDIATAMENTE no estado compartilhado, antes mesmo
+        # de escrever na planilha — é isso que fecha a janela da corrida.
+        estado["usados"].add(codigo)
+ 
+    try:
+        chamar_com_retry(sheet.update_cell, info["linha"], 2, "OK")
+        mostrar_alerta("✅", "LIBERADO", f"Código: {codigo}", "#1b5e20", "white")
+    except APIError:
+        # Falhou ao escrever na planilha mesmo após retries.
+        # Desfaz a marcação para não bloquear indevidamente uma tentativa futura.
+        with estado["lock"]:
+            estado["usados"].discard(codigo)
+        mostrar_alerta(
+            "⏳", "TENTE NOVAMENTE",
+            f"Código: {codigo} (sistema ocupado)", "#ff9800", "black"
+        )
  
 # ---------------------------------------------------------------------------
 # 7. Interface Otimizada para o Leitor Físico e Celular
